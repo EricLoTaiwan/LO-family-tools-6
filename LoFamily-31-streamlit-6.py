@@ -1,24 +1,24 @@
 import streamlit as st
+import webbrowser
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import urllib.parse
 import time
-import re
 
-# 引入 googlemaps
+# ==========================================
+# 依賴套件檢查與匯入
+# ==========================================
 try:
     import googlemaps
 except ImportError:
     googlemaps = None
 
-# 嘗試匯入 ZoneInfo
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
     ZoneInfo = None
 
-# 嘗試匯入 twder
 try:
     import twder
 except ImportError:
@@ -26,355 +26,422 @@ except ImportError:
 
 # ==========================================
 # 設定：Google Maps API Key
-# 請確認您的 Key 是否有效，並注意額度使用
 # ==========================================
-GOOGLE_MAPS_API_KEY = "AIzaSyBK2mfGSyNnfytW7sRkNM5ZWqh2SVGNabo"  # 您的原始 Key
+GOOGLE_MAPS_API_KEY = "AIzaSyBK2mfGSyNnfytW7sRkNM5ZWqh2SVGNabo" 
 
 # ==========================================
-# 頁面基本設定 (Page Config)
+# Streamlit 頁面設定 (必須是第一個 Streamlit 指令)
 # ==========================================
 st.set_page_config(
     page_title="四維家族 常用工具 (長輩友善版)",
-    layout="wide",  # 使用寬螢幕模式以容納左右欄
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ==========================================
-# CSS 樣式注入 (模擬原本的配色與大字體)
+# CSS 樣式注入 (對齊 Tkinter 視覺風格)
 # ==========================================
 st.markdown("""
     <style>
-    /* 全域背景色設定需透過 Streamlit 主題設定，這裡針對文字顏色做加強 */
-    .big-font { font-size: 24px !important; font-weight: bold; font-family: "Microsoft JhengHei", sans-serif; }
-    .title-font { font-size: 32px !important; font-weight: bold; color: #333333; margin-bottom: 10px; }
-    
-    /* 顏色定義 */
-    .gold-text { color: #f1c40f; font-weight: bold; }   /* 去程預設色 */
-    .blue-text { color: #00d2d3; font-weight: bold; }   /* 回程預設色 */
-    .red-text { color: #ff3333; font-weight: bold; }    /* 警示色/油價 */
-    .green-text { color: #2ecc71; font-weight: bold; }  /* 匯率 */
-    
-    /* 卡片式外框模擬 */
-    .card {
-        background-color: #2c3e50;
-        padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 15px;
-        color: white;
+    /* 全域背景色 */
+    .stApp {
+        background-color: #f5f5f5;
     }
     
-    /* 超連結樣式去除底線，讓它看起來像文字按鈕 */
+    /* 標題樣式 */
+    .main-title {
+        font-family: "Microsoft JhengHei";
+        font-size: 36px;
+        font-weight: bold;
+        text-align: center;
+        color: #000000;
+        margin-bottom: 10px;
+    }
+
+    /* 區塊標題 */
+    .section-title {
+        font-family: "Microsoft JhengHei";
+        font-size: 24px;
+        font-weight: bold;
+        color: #000000;
+        margin-top: 5px;
+        margin-bottom: 5px;
+        border-bottom: 2px solid #ccc;
+    }
+
+    /* 數據顯示框 */
+    .data-box {
+        background-color: #2c3e50;
+        padding: 15px;
+        border-radius: 5px;
+        font-family: "Consolas", "Microsoft JhengHei"; 
+        font-size: 24px;
+        font-weight: bold;
+        line-height: 1.5;
+        margin-bottom: 10px;
+    }
+
+    /* 路況群組標題 */
+    .traffic-group-title {
+        background-color: #34495e; 
+        color: white;
+        padding: 5px 10px; 
+        border-radius: 5px 5px 0 0; 
+        margin-top: 10px;
+        font-size: 18px;
+        font-weight: bold;
+        font-family: "Microsoft JhengHei";
+    }
+
+    /* 字體顏色定義 */
+    .text-gold { color: #f1c40f; } 
+    .text-cyan { color: #00d2d3; } 
+    .text-green { color: #2ecc71; } 
+    .text-red { color: #ff3333; }    
+    .text-white { color: #ffffff; }
+    
     a { text-decoration: none; }
     a:hover { text-decoration: underline; }
+
+    .stButton>button {
+        font-family: "Microsoft JhengHei";
+        font-weight: bold;
+        border-radius: 5px;
+    }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # ==========================================
-# 邏輯功能函式庫 (Logic Functions)
+# 邏輯功能函式
 # ==========================================
+
+def get_time_str(dt):
+    return dt.strftime("%H:%M:%S")
 
 def get_world_clock():
-    """計算世界時間"""
     now_utc = datetime.now(timezone.utc)
     try:
         if ZoneInfo:
-            tz_tw = ZoneInfo("Asia/Taipei")
-            tz_bos = ZoneInfo("America/New_York")
-            tz_ger = ZoneInfo("Europe/Berlin")
-            time_tw = now_utc.astimezone(tz_tw)
-            time_bos = now_utc.astimezone(tz_bos)
-            time_ger = now_utc.astimezone(tz_ger)
+            time_tw = now_utc.astimezone(ZoneInfo("Asia/Taipei"))
+            time_bos = now_utc.astimezone(ZoneInfo("America/New_York"))
+            time_ger = now_utc.astimezone(ZoneInfo("Europe/Berlin"))
         else:
             raise ImportError
     except:
         time_tw = now_utc + timedelta(hours=8)
         time_bos = now_utc - timedelta(hours=5)
         time_ger = now_utc + timedelta(hours=1)
-
-    fmt = "%H:%M:%S"
+    
     return {
-        "TW": time_tw.strftime(fmt),
-        "BOS": time_bos.strftime(fmt),
-        "GER": time_ger.strftime(fmt)
+        "TW": get_time_str(time_tw),
+        "BOS": get_time_str(time_bos),
+        "GER": get_time_str(time_ger)
     }
 
-def get_currency_rate():
-    """取得匯率 (無快取，每次刷新抓取)"""
+@st.cache_data(ttl=600) 
+def get_currency_rate_data():
     if not twder:
-        return "警告: 未安裝 twder"
-    
+        return "⚠️ 需安裝 twder"
     try:
+        # 索引 2 是現金賣出
         usd = twder.now('USD')[2]
         eur = twder.now('EUR')[2]
         jpy = twder.now('JPY')[2]
-        return f"🇺🇸 美金 : {usd} | 🇪🇺 歐元 : {eur} | 🇯🇵 日圓 : {jpy}"
-    except Exception as e:
-        return f"匯率讀取失敗: {e}"
+        return f"美金 : {usd}<br>歐元 : {eur}<br>日圓 : {jpy}"
+    except Exception:
+        return f"匯率讀取失敗"
 
-@st.cache_data(ttl=600)  # 快取 10 分鐘，避免頻繁呼叫 API
-def get_weather_data():
-    """取得天氣資料"""
+@st.cache_data(ttl=600) 
+def get_weather_data_html():
     locations = [
         {"name": "苗栗", "lat": 24.51, "lon": 120.82},
         {"name": "新竹", "lat": 24.80, "lon": 120.99},
         {"name": "芎林", "lat": 24.77, "lon": 121.07},
-        {"name": "木柵", "lat": 24.99, "lon": 121.57},
+        {"name": "木柵", "lat": 24.99, "lon": 121.57}, 
         {"name": "內湖", "lat": 25.08, "lon": 121.56},
         {"name": "波士頓", "lat": 42.36, "lon": -71.06},
         {"name": "德國", "lat": 51.05, "lon": 13.74},
     ]
     
-    results = []
+    result_html = ""
+    
     for loc in locations:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={loc['lat']}&longitude={loc['lon']}&current=temperature_2m,weather_code&hourly=precipitation_probability&timezone=auto&forecast_days=1"
         try:
-            r = requests.get(url, timeout=5)
-            if r.status_code == 200:
-                data = r.json()
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={loc['lat']}&longitude={loc['lon']}&current=temperature_2m,weather_code&hourly=precipitation_probability&timezone=auto&forecast_days=1"
+            res = requests.get(url, timeout=5)
+            
+            if res.status_code == 200:
+                data = res.json()
                 temp = data['current']['temperature_2m']
                 w_code = data['current'].get('weather_code', -1)
                 
-                # 簡易降雨機率與圖示邏輯 (保留您原始邏輯)
                 icon = ""
                 rain_text = ""
                 try:
-                    # 抓取目前小時的降雨機率
-                    current_hour = datetime.now().strftime("%Y-%m-%dT%H:00")
+                    current_time_str = data['current']['time']
+                    try:
+                        cur_dt = datetime.strptime(current_time_str, "%Y-%m-%dT%H:%M")
+                    except ValueError:
+                        cur_dt = datetime.strptime(current_time_str, "%Y-%m-%dT%H:%M:%S")
+                    
+                    cur_hour_dt = cur_dt.replace(minute=0, second=0)
+                    search_time = cur_hour_dt.strftime("%Y-%m-%dT%H:%M")
                     hourly_times = data['hourly']['time']
-                    if current_hour in hourly_times:
-                        idx = hourly_times.index(current_hour)
-                        # 取未來 5 小時最大值
-                        probs = data['hourly']['precipitation_probability'][idx:idx+5]
-                        max_prob = max(probs) if probs else 0
+                    
+                    if search_time in hourly_times:
+                        idx = hourly_times.index(search_time)
+                        future_probs = data['hourly']['precipitation_probability'][idx : idx+5]
                         
-                        if w_code in [71, 73, 75, 77, 85, 86]: icon = "❄️"
-                        elif w_code in [95, 96, 99]: icon = "⛈️"
-                        else:
-                            if max_prob <= 10: icon = "☀️"
-                            elif max_prob <= 40: icon = "☁️"
-                            elif max_prob <= 70: icon = "🌦️"
-                            else: icon = "☔"
-                        rain_text = f" ({icon}{max_prob}%)"
-                except:
-                    pass
+                        if future_probs:
+                            max_prob = max(future_probs)
+                            
+                            # === 優化後的圖示判斷邏輯 ===
+                            # WMO Weather Codes:
+                            # 56, 57: Freezing Drizzle (凍雨)
+                            # 66, 67: Freezing Rain (凍雨)
+                            # 71, 73, 75: Snow fall (雪)
+                            # 77: Snow grains (雪粒)
+                            # 85, 86: Snow showers (雪陣雨)
+                            is_snow_code = w_code in [56, 57, 66, 67, 71, 73, 75, 77, 85, 86]
+                            is_thunder_code = w_code in [95, 96, 99]
 
-                results.append(f"**{loc['name']}**: {temp}°C{rain_text}")
+                            if is_snow_code:
+                                icon = "❄️"
+                            elif is_thunder_code:
+                                icon = "⛈️"
+                            else:
+                                # 根據降雨機率判斷
+                                if max_prob <= 10:
+                                    icon = "☀️"
+                                elif max_prob <= 40:
+                                    icon = "☁️"
+                                else:
+                                    # 降雨機率大於 40%
+                                    # 增加氣溫判斷: 如果下雨但氣溫<=0度，強制轉為雪花圖示
+                                    if temp <= 0:
+                                        icon = "❄️"
+                                    elif max_prob <= 70:
+                                        icon = "🌦️"
+                                    else:
+                                        icon = "☔"
+                            
+                            rain_text = f" ({icon}{max_prob}%)"
+                except Exception:
+                    pass 
+
+                name_display = loc['name']
+                if len(name_display) == 2: name_display += "&emsp;" 
+                
+                result_html += f"{name_display}: {temp}°C{rain_text}<br>"
             else:
-                results.append(f"{loc['name']}: N/A")
+                result_html += f"{loc['name']}: N/A<br>"
         except:
-            results.append(f"{loc['name']}: 連線錯誤")
-    
-    return "  \n".join(results) # 使用 Markdown 換行
+            result_html += f"{loc['name']}: Err<br>"
+            
+    if not result_html:
+        return "暫無氣象資料"
+    return result_html
 
-@st.cache_data(ttl=3600) # 快取 1 小時
+@st.cache_data(ttl=3600)
 def get_gas_price():
-    """取得油價"""
     url = "https://gas.goodlife.tw/"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            cpc = soup.find("div", {"id": "cpc"})
-            if cpc:
-                prices = cpc.find_all("li")
-                p_data = {"92": "--", "95": "--", "98": "--"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            cpc_main = soup.find("div", {"id": "cpc"})
+            if cpc_main:
+                prices = cpc_main.find_all("li")
+                data = {"92": "--", "95": "--", "98": "--"}
                 for p in prices:
                     text = p.get_text().strip()
-                    if "92" in text: p_data['92'] = text.split(':')[-1].strip()
-                    if "95" in text: p_data['95'] = text.split(':')[-1].strip()
-                    if "98" in text: p_data['98'] = text.split(':')[-1].strip()
-                return p_data
+                    if "92" in text: data['92'] = text.split(':')[-1].strip()
+                    if "95" in text: data['95'] = text.split(':')[-1].strip()
+                    if "98" in text: data['98'] = text.split(':')[-1].strip()
+                return f"92無鉛: {data['92']} | 95無鉛: {data['95']} | 98無鉛: {data['98']}"
     except:
         pass
-    return None
+    return "油價連線失敗"
 
 def parse_duration_to_minutes(text):
-    """解析 Google Maps 回傳的時間文字為分鐘數"""
     try:
-        total = 0
-        rem = text
+        total_mins = 0
+        remaining_text = text
         if "小時" in text:
             parts = text.split("小時")
-            total += int(parts[0].strip()) * 60
-            rem = parts[1]
-        if "分鐘" in rem:
-            mins = rem.replace("分鐘", "").strip()
-            if mins.isdigit():
-                total += int(mins)
-        return total
+            hours = int(parts[0].strip())
+            total_mins += hours * 60
+            remaining_text = parts[1]
+        if "分鐘" in remaining_text:
+            mins_part = remaining_text.replace("分鐘", "").strip()
+            if mins_part.isdigit():
+                total_mins += int(mins_part)
+        return total_mins
     except:
         return 0
 
-def get_google_map_url(start, end):
-    """產生 Google Maps 導航連結"""
+def get_google_maps_url(start, end):
     s_enc = urllib.parse.quote(start)
     e_enc = urllib.parse.quote(end)
     return f"https://www.google.com.tw/maps/dir/{s_enc}/{e_enc}"
 
-@st.cache_data(ttl=300) # 路況快取 5 分鐘
-def get_traffic_data(base_addr, locations, api_key):
-    """取得路況資料 (一次處理所有地點以節省快取管理)"""
-    if not api_key or "YOUR_KEY" in api_key or not googlemaps:
-        return "API_ERROR"
+def calculate_traffic(gmaps, start_addr, end_addr, std_time, label_prefix):
+    url = get_google_maps_url(start_addr, end_addr)
+    
+    if not gmaps:
+        return f"{label_prefix} : API未設定/缺套件", "text-white", url
 
-    gmaps = googlemaps.Client(key=api_key)
-    results = []
-
-    for item in locations:
-        name = item['name']
-        target_addr = item['addr']
-        return_label = item['return_label']
-        std_go = item['std_go']
-        std_back = item['std_back']
-
-        # --- 去程 ---
-        go_info = {"text": "計算中", "color": "gold-text", "diff": 0, "url": get_google_map_url(target_addr, base_addr)}
-        try:
-            m_go = gmaps.distance_matrix(origins=target_addr, destinations=base_addr, mode='driving', departure_time=datetime.now(), language='zh-TW')
-            el_go = m_go['rows'][0]['elements'][0]
-            if 'duration_in_traffic' in el_go:
-                txt = el_go['duration_in_traffic']['text']
-                mins = parse_duration_to_minutes(txt)
-                diff = mins - std_go
-                sign = "+" if diff > 0 else ""
-                color = "red-text" if diff > 20 else "gold-text"
-                go_info.update({"text": f"{txt} ({sign}{diff}分)", "color": color, "diff": diff})
-        except Exception as e:
-            go_info["text"] = "查詢失敗"
-
-        # --- 回程 ---
-        back_info = {"text": "計算中", "color": "blue-text", "diff": 0, "url": get_google_map_url(base_addr, target_addr)}
-        try:
-            m_back = gmaps.distance_matrix(origins=base_addr, destinations=target_addr, mode='driving', departure_time=datetime.now(), language='zh-TW')
-            el_back = m_back['rows'][0]['elements'][0]
-            if 'duration_in_traffic' in el_back:
-                txt = el_back['duration_in_traffic']['text']
-                mins = parse_duration_to_minutes(txt)
-                diff = mins - std_back
-                sign = "+" if diff > 0 else ""
-                color = "red-text" if diff > 20 else "blue-text"
-                back_info.update({"text": f"{txt} ({sign}{diff}分)", "color": color, "diff": diff})
-        except Exception as e:
-            back_info["text"] = "查詢失敗"
+    try:
+        matrix = gmaps.distance_matrix(
+            origins=start_addr,
+            destinations=end_addr,
+            mode='driving',
+            departure_time=datetime.now(),
+            language='zh-TW'
+        )
+        el = matrix['rows'][0]['elements'][0]
+        
+        if 'duration_in_traffic' in el:
+            time_str = el['duration_in_traffic']['text']
+        elif 'duration' in el:
+            time_str = el['duration']['text']
+        else:
+            time_str = "無法估算"
             
-        results.append({
-            "name": name,
-            "return_label": return_label,
-            "go": go_info,
-            "back": back_info
-        })
-    return results
+        cur_mins = parse_duration_to_minutes(time_str)
+        
+        if label_prefix == "往苗栗":
+            base_class = "text-gold"
+        else:
+            base_class = "text-cyan"
+            
+        if cur_mins > 0:
+            diff = cur_mins - std_time
+            sign = "+" if diff > 0 else ""
+            display_text = f"{label_prefix} : {time_str} ({sign}{diff}分)"
+            color_class = "text-red" if diff > 20 else base_class
+        else:
+            display_text = f"{label_prefix} : {time_str}"
+            color_class = base_class
+            
+        return display_text, color_class, url
+        
+    except Exception:
+        return f"{label_prefix} : 查詢失敗", base_class, url
 
 # ==========================================
-# 主程式 UI 建構
+# 主程式 UI 佈局
 # ==========================================
 
-# 標題
-st.markdown("<div style='text-align: center; font-size: 36px; font-weight: bold; margin-bottom: 20px;'>四維家族 專屬工具箱 🛠️</div>", unsafe_allow_html=True)
+# 1. 大標題
+st.markdown('<div class="main-title">四維家族 專屬工具箱</div>', unsafe_allow_html=True)
 
-# 建立左右兩欄 (比例 1:1)
-col_left, col_right = st.columns([1, 1], gap="large")
+# 2. 手動更新按鈕
+if st.button("🔄 點擊手動更新所有即時資訊 (時間/路況/天氣)", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
+
+# 3. 內容分欄 (左欄: 資訊 / 右欄: 路況)
+col_left, col_right = st.columns([1, 1], gap="medium")
 
 # --- 左欄內容 ---
 with col_left:
-    # 1. 第一列：世界時間 + 天氣 (再切分兩欄)
     sub_c1, sub_c2 = st.columns(2)
     
     with sub_c1:
-        st.markdown("<div class='title-font'>🕒 世界時間 (Live)</div>", unsafe_allow_html=True)
+        # 世界時間
+        st.markdown('<div class="section-title">世界時間 (Live)</div>', unsafe_allow_html=True)
         clock_data = get_world_clock()
         st.markdown(f"""
-        <div class='card big-font' style='color: #f1c40f;'>
-        台灣 : {clock_data['TW']}<br>
-        波士頓 : {clock_data['BOS']}<br>
-        德國 : {clock_data['GER']}
+        <div class="data-box text-gold">
+            台灣&emsp;: {clock_data['TW']}<br>
+            波士頓: {clock_data['BOS']}<br>
+            德國&emsp;: {clock_data['GER']}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 即時匯率
+        st.markdown('<div class="section-title">即時匯率 (台銀)</div>', unsafe_allow_html=True)
+        currency_html = get_currency_rate_data()
+        st.markdown(f"""
+        <div class="data-box text-green">
+            {currency_html}
         </div>
         """, unsafe_allow_html=True)
 
     with sub_c2:
-        st.markdown("<div class='title-font'>⛅ 即時氣溫</div>", unsafe_allow_html=True)
-        weather_text = get_weather_data()
+        # 即時氣溫
+        st.markdown('<div class="section-title">即時氣溫 & 降雨率</div>', unsafe_allow_html=True)
+        weather_html = get_weather_data_html()
         st.markdown(f"""
-        <div class='card big-font' style='font-size: 20px !important; color: #00d2d3;'>
-        {weather_text}
+        <div class="data-box text-cyan" style="font-size: 22px;">
+            {weather_html}
         </div>
         """, unsafe_allow_html=True)
 
-    # 2. 第二列：即時匯率
-    st.markdown("---")
-    st.markdown("<div class='title-font'>💱 即時匯率 (台銀)</div>", unsafe_allow_html=True)
-    currency_text = get_currency_rate()
-    st.markdown(f"<div class='big-font green-text'>{currency_text}</div>", unsafe_allow_html=True)
-
-    # 3. 第三列：油價
-    st.markdown("---")
-    st.markdown("<div class='title-font'>⛽ 今日油價 (中油)</div>", unsafe_allow_html=True)
-    gas_data = get_gas_price()
-    if gas_data:
-        st.markdown(f"""
-        <div class='big-font red-text' style='text-align: center; border: 2px solid #e74c3c; padding: 10px; border-radius: 10px;'>
-        92無鉛: {gas_data['92']} | 95無鉛: {gas_data['95']} | 98無鉛: {gas_data['98']}
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.error("油價載入失敗")
-        
-    # 左欄重新整理按鈕
-    if st.button("🔄 更新左欄資訊 (天氣/匯率)", use_container_width=True):
-        st.cache_data.clear() # 清除快取以強制更新
-        st.rerun()
+    # 油價
+    st.markdown('<div class="section-title">今日即時油價 (中油)</div>', unsafe_allow_html=True)
+    gas_info = get_gas_price()
+    st.markdown(f"""
+    <div class="data-box text-red" style="text-align: center;">
+        {gas_info}
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- 右欄內容 (路況) ---
 with col_right:
-    st.markdown("<div class='title-font'>🚗 即時路況 (Google Map)</div>", unsafe_allow_html=True)
-    st.info("※ 點擊下方文字可直接開啟 Google 地圖導航")
-
-    # 定義地址與標準時間 (完全參照您提供的設定)
+    st.markdown('<div class="section-title">即時路況 (Google Map)</div>', unsafe_allow_html=True)
+    st.markdown('<span style="color:#7f8c8d; font-size:14px;">※ 點擊下方文字可直接開啟 Google 地圖導航</span>', unsafe_allow_html=True)
+    
     base_addr = "苗栗縣公館鄉鶴山村11鄰鶴山146號"
-    locations = [
-        {"name": "月華家", "addr": "文山區木柵路二段109巷137號", "return_label": "反木柵", "std_go": 76, "std_back": 76},
-        {"name": "秋華家", "addr": "新竹的名人大矽谷", "return_label": "反芎林", "std_go": 34, "std_back": 36},
-        {"name": "孟竹家", "addr": "新竹市東區太原路128號", "return_label": "反新竹", "std_go": 31, "std_back": 33},
-        {"name": "小凱家", "addr": "台北市內湖區文湖街21巷", "return_label": "反內湖", "std_go": 77, "std_back": 79}
+    
+    # (顯示名稱, 目標地址, 回程顯示名稱, 去程標準分, 回程標準分)
+    target_locations = [
+        ("月華家", "文山區木柵路二段109巷137號", "反木柵", 76, 76),
+        ("秋華家", "新竹的名人大矽谷", "反芎林", 34, 36),
+        ("孟竹家", "新竹市東區太原路128號", "反新竹", 31, 33),
+        ("小凱家", "台北市內湖區文湖街21巷", "反內湖", 77, 79)
     ]
-
-    # 取得路況資料
-    traffic_res = get_traffic_data(base_addr, locations, GOOGLE_MAPS_API_KEY)
-
-    if traffic_res == "API_ERROR":
-        st.error("⚠️ Google Maps API 未設定或套件遺失")
-    else:
-        for item in traffic_res:
-            # 使用 HTML 渲染卡片與連結
-            st.markdown(f"""
-            <div class='card'>
-                <div style='font-size: 22px; font-weight: bold; border-bottom: 1px solid #7f8c8d; margin-bottom: 10px; padding-bottom: 5px;'>
-                    🏠 {item['name']}
-                </div>
-                <div style='font-size: 20px; margin-bottom: 5px;'>
-                    <a href="{item['go']['url']}" target="_blank" class="{item['go']['color']}">
-                        往苗栗 : {item['go']['text']}
-                    </a>
-                </div>
-                <div style='font-size: 20px;'>
-                    <a href="{item['back']['url']}" target="_blank" class="{item['back']['color']}">
-                        {item['return_label']} : {item['back']['text']}
-                    </a>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    if st.button("🔄 更新路況資訊", type="primary", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+    
+    gmaps_client = None
+    if GOOGLE_MAPS_API_KEY and "YOUR_KEY" not in GOOGLE_MAPS_API_KEY:
+        try:
+            gmaps_client = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+        except:
+            pass
+    
+    for name, target_addr, return_label, std_go, std_back in target_locations:
+        st.markdown(f"""<div class="traffic-group-title">{name}</div>""", unsafe_allow_html=True)
+        
+        txt_go, cls_go, url_go = calculate_traffic(gmaps_client, target_addr, base_addr, std_go, "往苗栗")
+        txt_back, cls_back, url_back = calculate_traffic(gmaps_client, base_addr, target_addr, std_back, return_label)
+        
+        st.markdown(f"""
+        <div class="data-box" style="margin-top:0; border-radius:0 0 5px 5px; padding-top:5px;">
+            <a href="{url_go}" target="_blank" class="{cls_go}" style="display:block; margin-bottom:5px;">{txt_go}</a>
+            <a href="{url_back}" target="_blank" class="{cls_back}" style="display:block;">{txt_back}</a>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ==========================================
 # 底部 Footer
 # ==========================================
-st.markdown("---")
-col_foot1, col_foot2 = st.columns([1, 4])
-with col_foot1:
-    st.link_button("📺 YouTube 轉 MP3", "https://yt1s.ai/zh-tw/youtube-to-mp3/")
-with col_foot2:
-    st.markdown("<div style='padding-top: 5px; color: #7f8c8d; font-size: 16px;'>← 點擊按鈕開啟轉檔網站</div>", unsafe_allow_html=True)
+st.divider()
+col_f1, col_f2 = st.columns([1, 4])
+
+with col_f1:
+    st.markdown("""
+        <style>
+        div.stButton > button:first-child {
+            background-color: #e74c3c;
+            color: white;
+            font-size: 16px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    st.link_button("YouTube 轉 MP3", "https://yt1s.ai/zh-tw/youtube-to-mp3/", use_container_width=True)
+
+with col_f2:
+    st.markdown('<div style="margin-top: 10px; color: #7f8c8d; font-size: 16px;">← 點擊左側按鈕開啟轉檔 | ※ 點擊路況文字可直接開啟 Google 地圖</div>', unsafe_allow_html=True)
