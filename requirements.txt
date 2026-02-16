@@ -1,0 +1,8 @@
+Plaintext
+streamlit
+requests
+beautifulsoup4
+googlemaps
+pandas
+lxml
+twder
